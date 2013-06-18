@@ -57,12 +57,12 @@ sub call {
       else {
         AnyEvent::HTTP::http_get $url, sub {
           my ($body, $headers) = @_;
-          if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{/x?html$}) {
+          if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{/x?html}) {
             my $url;
             my $parser = HTML::Parser->new(
               api_version => 3,
               start_h => [ sub {
-                if ($_[0] eq "link" and $_[1]->{rel} eq "shortcut icon") {
+                if ($_[0] eq "link" and $_[1]->{rel} =~ /^(shortcut )?icon$/) {
                   $url = $_[1]->{href};
                   $_[2]->eof;
                 }
