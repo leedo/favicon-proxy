@@ -4,6 +4,8 @@ use CHI;
 use AnyEvent::HTTP ();
 use HTML::Parser;
 use Plack::Util::Accessor qw{cache};
+use Plack::Request;
+use URI;
 
 use parent 'Plack::Component';
 
@@ -13,19 +15,31 @@ sub prepare_app {
     unless defined $self->{cache};
 }
 
+sub not_found {
+  my $status = $_[1] or 404;
+  return [$status, ["Content-Type", "text/plain"], ["not found"]];
+}
+
 sub call {
   my ($self, $env) = @_;
-  my ($domain) = grep {$_} split "/", $env->{PATH_INFO};
+  my $req = Plack::Request->new($env);
+  my $url = $req->parameters->{url};
+
+  if (!$url) {
+    return $self->not_found(410);
+  }
+
+  my $domain = URI->new($url)->host;
 
   if (!$domain) {
-    return [404, ["Content-Type", "text/plain"], ["not found"]];
+    return $self->not_found;
   }
 
   my $info = $self->{cache}->get($domain);
-  my ($image, @headers) = @$info;
 
-  if ($image) {
-    return [200, \@headers, $image];
+  if ($info) {
+    my ($image, @headers) = @$info;
+    return [200, \@headers, [$image]];
   }
 
   return sub {
@@ -33,22 +47,23 @@ sub call {
     AnyEvent::HTTP::http_get "http://$domain/favicon.ico", sub {
       my ($body, $headers) = @_;
       if ($headers->{Status} == 200) {
-        my @headers = map {$_, $headers->{$_}} grep {/a-z/} keys %$headers;
+        my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
         $self->{cache}->set($domain, [$body, @headers]);
         $respond->([200, \@headers, [$body]]);
       }
       else {
-        AnyEvent::HTTP::http_get "http://$domain/", sub {
+        AnyEvent::HTTP::http_get $url, sub {
           my ($body, $headers) = @_;
-          if ($headers->{Status} == 200 and $headers->{"content-type"} =~ /^x?html/) {
+          if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{/x?html$}) {
             my $url;
             my $parser = HTML::Parser->new(
               api_version => 3,
               start_h => [ sub {
-                if (lc $_[0] eq "link" and defined $_[1]->{href}) {
-                  $url = $attr->{href};
+                if ($_[0] eq "link" and $_[1]->{rel} eq "shortcut icon") {
+                  $url = $_[1]->{href};
+                  $_[2]->eof;
                 }
-              }, "tagname, attr" ],
+              }, "tagname, attr, self" ],
             );
             $parser->parse($body);
             $parser->eof;
@@ -57,18 +72,18 @@ sub call {
               AnyEvent::HTTP::http_get $url, sub {
                 my ($body, $headers) = @_;
                 if ($headers->{Status} == 200) {
-                  my @headers = map {$_, $headers->{$_}} grep {/a-z/} keys %$headers;
+                  my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
                   $self->{cache}->set($domain, [$body, @headers]);
                   $respond->([200, \@headers, [$body]]);
                 }
                 else {
-                  $respond->([404, ["Content-Type", "text/plain"], ["not found"]]);
+                  $respond->($self->not_found);
                 }
               };
             }
           }
           else {
-            $respond->([404, ["Content-Type", "text/plain"], ["not found"]]);
+            $respond->($self->not_found);
           }
         };
       }
