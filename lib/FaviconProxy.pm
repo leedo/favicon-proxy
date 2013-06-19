@@ -49,14 +49,13 @@ sub call {
     my $respond = shift;
     AnyEvent::HTTP::http_get "http://$domain/favicon.ico", sub {
       my ($body, $headers) = @_;
-      if ($headers->{Status} == 200) {
+      if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{^image/}) {
         my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
         $self->{cache}->set($domain, [$body, @headers]);
         $respond->([200, \@headers, [$body]]);
       }
       else {
         AnyEvent::HTTP::http_get $url, sub {
-          my ($body, $headers) = @_;
           if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{/x?html}) {
             my $url;
             my $parser = HTML::Parser->new(
@@ -74,7 +73,7 @@ sub call {
             if ($url) {
               AnyEvent::HTTP::http_get $url, sub {
                 my ($body, $headers) = @_;
-                if ($headers->{Status} == 200) {
+                if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{^image/}) {
                   my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
                   $self->{cache}->set($domain, [$body, @headers]);
                   $respond->([200, \@headers, [$body]]);
