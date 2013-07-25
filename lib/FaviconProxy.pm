@@ -51,7 +51,7 @@ sub call {
     my $respond = shift;
     AnyEvent::HTTP::http_get "$base/favicon.ico", sub {
       my ($body, $headers) = @_;
-      if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{^image/}) {
+      if ($headers->{Status} == 200 and $headers->{"content-type"} !~ m{/html}) {
         my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
         $self->{cache}->set($domain, [$body, @headers]);
         $respond->([200, \@headers, [$body]]);
@@ -76,7 +76,7 @@ sub call {
             if ($favicon_url) {
               AnyEvent::HTTP::http_get $favicon_url, sub {
                 my ($body, $headers) = @_;
-                if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{^image/}) {
+                if ($headers->{Status} == 200 and $headers->{"content-type"} !~ m{/html}) {
                   my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
                   $self->{cache}->set($domain, [$body, @headers]);
                   $respond->([200, \@headers, [$body]]);
