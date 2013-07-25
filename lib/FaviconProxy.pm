@@ -32,7 +32,9 @@ sub call {
     return $self->not_found(410);
   }
 
-  my $domain = URI->new($url)->host;
+  my $uri = URI->new($url);
+  my $domain = $uri->host;
+  my $base = $uri->scheme . "://$domain";
 
   if (!$domain) {
     return $self->not_found;
@@ -47,7 +49,7 @@ sub call {
 
   return sub {
     my $respond = shift;
-    AnyEvent::HTTP::http_get "http://$domain/favicon.ico", sub {
+    AnyEvent::HTTP::http_get "$base/favicon.ico", sub {
       my ($body, $headers) = @_;
       if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{^image/}) {
         my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
@@ -57,12 +59,13 @@ sub call {
       else {
         AnyEvent::HTTP::http_get $url, sub {
           if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{/x?html}) {
-            my $url;
+            my $favicon_url;
             my $parser = HTML::Parser->new(
               api_version => 3,
               start_h => [ sub {
-                if ($_[0] eq "link" and $_[1]->{rel} =~ /^(shortcut )?icon$/) {
-                  $url = $_[1]->{href};
+                if ($_[0] eq "link" and $_[1]->{rel} =~ /^(shortcut )?icon$/ and defined $_[1]->{href}) {
+                  my $href = $_[1]->{href};
+                  $favicon_url = $href =~ m{^/} ? $base.$href : $href;
                   $_[2]->eof;
                 }
               }, "tagname, attr, self" ],
@@ -70,8 +73,8 @@ sub call {
             $parser->parse($body);
             $parser->eof;
 
-            if ($url) {
-              AnyEvent::HTTP::http_get $url, sub {
+            if ($favicon_url) {
+              AnyEvent::HTTP::http_get $favicon_url, sub {
                 my ($body, $headers) = @_;
                 if ($headers->{Status} == 200 and $headers->{"content-type"} =~ m{^image/}) {
                   my @headers = map {$_, $headers->{$_}} grep {/^[a-z]/} keys %$headers;
